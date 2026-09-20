@@ -40,18 +40,75 @@ const SPECIAL = [
 ];
 
 const shuffle = a => [...a].sort(() => Math.random() - .5);
-function makeQuestions(count=20){
-  const vocabQs = shuffle(VOCAB).map(([en,de],i)=>{
-    const askEnglish = i % 3 !== 1;
-    const answer = askEnglish ? en : de;
-    const candidateIndex = askEnglish ? 0 : 1;
-    const candidates = shuffle([...new Set(VOCAB.map(v=>v[candidateIndex]).filter(value=>value!==answer))]).slice(0,3);
-    return askEnglish
-      ? {prompt:`Was heißt „${de}“ auf Englisch?`,answer:en,wrong:candidates,note:`„${de}“ heißt „${en}“.`,kind:'Übersetzung'}
-      : {prompt:`Was bedeutet „${en}“?`,answer:de,wrong:candidates,note:`„${en}“ bedeutet „${de}“.`,kind:'Übersetzung'};
-  });
-  const specialQs = SPECIAL.map(([prompt,answer,wrong])=>({prompt,answer,wrong,note:`Richtig ist: ${answer}.`,kind:prompt.includes('Präposition')?'Präposition':'Schreibweise'}));
-  const chosen = shuffle([...specialQs.slice(0,8),...shuffle(specialQs.slice(8)).slice(0,5),...vocabQs]).slice(0,count);
+const PHRASE_DISTRACTORS = {
+  'to look after somebody':['to look for somebody','to look at somebody','to look after to somebody'],
+  'to look forward to something':['to look forward for something','to look forward at something','to look forward something'],
+  'to get in touch with somebody':['to get in touch to somebody','to get on touch with somebody','to get in touch somebody'],
+  'to stay in touch with somebody':['to stay in touch to somebody','to stay on touch with somebody','to stay in touch somebody'],
+  'to invite somebody to':['to invite somebody at','to invite somebody for','to invite to somebody'],
+  'to move to':['to move in','to move at','to move into to'],
+  'to make notes on something':['to make notes of something','to do notes on something','to make notes at something'],
+  'similar to something or somebody':['similar with something or somebody','similar as something or somebody','similar than something or somebody'],
+  'to walk / run / sail on':['to walk / run / sail out','to walk / run / sail at','to walk / run / sail of'],
+  'to turn something off':['to turn something out','to turn something of','to turn off something on'],
+  'to give somebody a hug':['to give to somebody a hug','to give somebody an hug','to make somebody a hug'],
+  'to wash the dishes':['to wash up the dish','to washing the dishes','to wash the disches'],
+  'to be / feel bored':['to be / feel boring','to be / fell bored','to been / feel bored'],
+  'to be allowed to do something':['to be aloud to do something','to allowed to do something','to be allowed doing something'],
+  'two days ago':['two day ago','two days before','two days eggo'],
+  'so that …':['so then …','that so …','so what …'],
+  'next to':['next at','next of','next on'],
+  'right now':['right know','write now','right new'],
+  'at first':['in first','at firstly','at frist'],
+  'to':['too','two','for'],
+  'if':['iff','ef','of'],
+  'out':['aut','oute','uot']
+};
+
+function spellingDistractors(answer){
+  if(PHRASE_DISTRACTORS[answer]) return PHRASE_DISTRACTORS[answer];
+  const words = answer.split(' ');
+  const targetIndex = words.reduce((best,word,index)=>word.length>words[best].length?index:best,0);
+  const word = words[targetIndex];
+  const variants = new Set();
+  const add = changed => {const copy=[...words];copy[targetIndex]=changed;variants.add(copy.join(' '));};
+  if(word.length>=4){
+    const middle=Math.max(1,Math.floor(word.length/2)-1);
+    add(word.slice(0,middle)+word[middle+1]+word[middle]+word.slice(middle+2));
+    add(word.slice(0,middle)+word.slice(middle+1));
+    add(word.slice(0,middle)+word[middle]+word.slice(middle));
+    const vowelIndex=[...word].findIndex((char,index)=>index>0&&index<word.length-1&&'aeiou'.includes(char.toLowerCase()));
+    if(vowelIndex>0) add(word.slice(0,vowelIndex)+(word[vowelIndex].toLowerCase()==='a'?'e':'a')+word.slice(vowelIndex+1));
+  } else {
+    add(word+'e');
+    add(word[0]+word);
+    add([...word].reverse().join(''));
+  }
+  return [...variants].filter(value=>value!==answer).slice(0,3);
+}
+
+function nearbyMeanings(index,answer){
+  const values=[];
+  for(let distance=1;values.length<3&&distance<VOCAB.length;distance++){
+    for(const candidateIndex of [index-distance,index+distance]){
+      if(candidateIndex>=0&&candidateIndex<VOCAB.length){
+        const value=VOCAB[candidateIndex][1];
+        if(value!==answer&&!values.includes(value)&&values.length<3) values.push(value);
+      }
+    }
+  }
+  return values;
+}
+
+function makeQuestions(){
+  const spellingQs = VOCAB.map(([en,de])=>({prompt:`Welche englische Schreibweise oder Wendung ist richtig? – ${de}`,answer:en,wrong:spellingDistractors(en),note:`„${de}“ heißt „${en}“.`,kind:'Schreibweise'}));
+  const meaningQs = VOCAB.map(([en,de],index)=>({prompt:`Was bedeutet „${en}“?`,answer:de,wrong:nearbyMeanings(index,de),note:`„${en}“ bedeutet „${de}“.`,kind:'Bedeutung'}));
+  const specialQs = SPECIAL.map(([prompt,answer,wrong])=>({prompt,answer,wrong,note:`Richtig ist: ${answer}.`,kind:prompt.includes('Präposition')?'Präposition':'Wendung'}));
+  const chosen = shuffle([
+    ...shuffle(spellingQs).slice(0,12),
+    ...shuffle(meaningQs).slice(0,6),
+    ...shuffle(specialQs).slice(0,2)
+  ]);
   return chosen.map((q,id)=>({...q,id,options:shuffle([q.answer,...q.wrong])}));
 }
 
